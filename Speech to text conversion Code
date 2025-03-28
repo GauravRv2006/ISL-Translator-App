@@ -1,0 +1,69 @@
+from transformers import WhisperProcessor, WhisperForConditionalGeneration
+import torch
+import torchaudio
+import torchaudio.transforms as T
+
+# Load the audio file
+speech_array, sampling_rate = torchaudio.load("/content/Learn How to PREDICT TRENDS with Python and Machine Learning (enhanced).wav")
+
+# Ensure the audio is mono
+if speech_array.shape[0] > 1:
+    speech_array = torch.mean(speech_array, dim=0, keepdim=True)
+
+# Truncate the audio to 100 seconds
+max_length = 16000 * 100  # 100 seconds of audio
+speech_array = speech_array[:, :max_length]
+
+# Check the original sampling rate (should be 48000 Hz)
+print(f"Original Sampling Rate: {sampling_rate}")
+
+# Define the resampling transformation (from 48000 to 16000 Hz)
+resampler = T.Resample(orig_freq=48000, new_freq=16000)
+
+# Apply the resampling
+resampled_audio = resampler(speech_array)
+
+# Check the new sampling rate
+print(f"New Sampling Rate: 16000 Hz")
+
+# Save the resampled audio if needed
+torchaudio.save("resampled_audio.wav", resampled_audio, 16000)
+
+# Normalize the resampled audio
+resampled_audio = resampled_audio / torch.max(torch.abs(resampled_audio))
+
+# Ensure the tensor is float32
+resampled_audio = resampled_audio.to(torch.float32)
+
+# Check the current shape and sampling rate
+print(f"Shape of resampled_audio before processing: {resampled_audio.shape}")
+print(f"Sampling rate: 16000")
+
+# Load the processor
+processor = WhisperProcessor.from_pretrained("openai/whisper-small")
+
+# Manually prepare input features
+try:
+    inputs = processor.feature_extractor(
+        resampled_audio.squeeze().numpy(), sampling_rate=16000, return_tensors="pt"
+    )
+    input_features = inputs.input_features
+    print(f"Shape of input features after processing: {input_features.shape}")
+except Exception as e:
+    print(f"Error during processing: {e}")
+
+# Check if inputs were successfully created before continuing
+if inputs is not None:
+    # Load the model
+    model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
+
+    # Generate predictions with language set to English
+    with torch.no_grad():
+        attention_mask = torch.ones(input_features.shape, dtype=torch.bool)
+        predicted_ids = model.generate(input_features, attention_mask=attention_mask, language='en')
+
+    # Decode the predictions
+    transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
+    print(transcription)
+else:
+    print("Failed to preprocess the inputs. Cannot proceed with transcription.")
